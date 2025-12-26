@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gerador de Talão EDM - Completo</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<style>
+    body {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        background: #ced4da; /* Cor de fundo mais escura para contraste */
+        padding: 20px;
+        display: flex;
+        justify-content: center;
+    }
+
+    .container {
+        background: white;
+        padding: 25px;
+        border-radius: 12px;
+        width: 100%;
+        max-width: 550px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+    }
+
+    h2 {
+        text-align: center;
+        color: #2c3e50;
+        margin-top: 0;
+        border-bottom: 2px solid #eee;
+        padding-bottom: 10px;
+    }
+
+    label {
+        font-weight: bold;
+        display: block;
+        margin-bottom: 5px;
+        color: #444;
+    }
+
+    textarea {
+        width: 100%;
+        height: 180px;
+        padding: 12px;
+        border: 2px solid #ddd;
+        border-radius: 8px;
+        resize: vertical;
+        box-sizing: border-box;
+        font-size: 14px;
+        font-family: monospace;
+    }
+
+    textarea:focus {
+        border-color: #0056b3;
+        outline: none;
+    }
+
+    .btn-group {
+        margin-top: 15px;
+        display: flex;
+        gap: 10px;
+    }
+
+    button {
+        flex: 1;
+        padding: 12px;
+        font-size: 16px;
+        font-weight: bold;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: transform 0.1s, background 0.3s;
+    }
+
+    button:active { transform: scale(0.98); }
+
+    .btn-generate {
+        background-color: #28a745;
+        color: white;
+    }
+    .btn-generate:hover { background-color: #218838; }
+
+    .btn-clear {
+        background-color: #dc3545;
+        color: white;
+    }
+    .btn-clear:hover { background-color: #c82333; }
+
+    .preview {
+        margin-top: 15px;
+        font-size: 13px;
+        color: #666;
+        text-align: center;
+        font-style: italic;
+    }
+</style>
+</head>
+
+<body>
+
+<div class="container">
+    <h2>🇲🇿 Gerador EDM (Credelec)</h2>
+    
+    <label for="texto">Cole a mensagem SMS aqui:</label>
+    <textarea id="texto" placeholder="Exemplo:
+Compra de Credelec: 500MT
+Contador: 123456789
+Taxa Radio: 10.00
+Taxa Lixo: 20.00
+Codigo 1: 1234 5678 9012 3456 7890"></textarea>
+    
+    <div class="btn-group">
+        <button class="btn-clear" onclick="limpar()">Limpar Texto</button>
+        <button class="btn-generate" onclick="gerarPDF()">Gerar PDF</button>
+    </div>
+
+    <p class="preview">O recibo incluirá taxas e ajustará a largura automaticamente.</p>
+</div>
+
+<script>
+function limpar() {
+    document.getElementById("texto").value = "";
+    document.getElementById("texto").focus();
+}
+
+function gerarPDF() {
+    const { jsPDF } = window.jspdf;
+    let inputRaw = document.getElementById("texto").value;
+
+    if (!inputRaw.trim()) {
+        alert("Por favor, cole o texto da mensagem primeiro.");
+        return;
+    }
+
+    // 1. Limpeza
+    let textoLimpo = inputRaw
+        .replace(/e-mola/gi, "")
+        .replace(/Meu cell\. minha mola/gi, "")
+        .replace(/Digite \*.*?#/gi, "")
+        .trim();
+
+    // 2. Extração de Dados
+    const dados = extrairDados(textoLimpo);
+
+    const pdf = new jsPDF("p", "mm", "a4");
+    
+    // --- LÓGICA DE LARGURA AUTOMÁTICA ---
+    // Largura base do talão
+    const larguraBase = 80; 
+    let larguraBox = larguraBase;
+
+    // Se tiver código, verifica se precisa alargar
+    let codigoFormatado = "";
+    if (dados.codigo) {
+        // Formata grupos de 4 dígitos
+        codigoFormatado = dados.codigo.replace(/\s/g, '').replace(/(.{4})/g, '$1 ').trim();
+        
+        pdf.setFont("courier", "bold");
+        pdf.setFontSize(15);
+        const larguraTextoCodigo = pdf.getTextWidth(codigoFormatado);
+        
+        // Se o texto do código for maior que a caixa (menos margens), aumenta a caixa
+        if (larguraTextoCodigo > (larguraBase - 15)) {
+            larguraBox = larguraTextoCodigo + 20; // Adiciona margem de segurança
+        }
+    }
+
+    // Centraliza na página A4 (210mm de largura)
+    const larguraPagina = 210;
+    const margemEsquerda = (larguraPagina - larguraBox) / 2;
+    let y = 30;
+
+    // --- CABEÇALHO ---
+    pdf.setDrawColor(0);
+    pdf.setFillColor(240, 240, 240); // Cinza bem claro
+    pdf.rect(margemEsquerda, y - 10, larguraBox, 22, 'F'); 
+    
+    pdf.setTextColor(0);
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(16);
+    centerText(pdf, "EDM - CREDELEC", margemEsquerda, larguraBox, y);
+    y += 7;
+    
+    pdf.setFontSize(10);
+    pdf.setFont("helvetica", "normal");
+    centerText(pdf, "Comprovativo de Venda", margemEsquerda, larguraBox, y);
+    y += 8;
+
+    // --- CÓDIGO (Antigo Token) ---
+    if (dados.codigo) {
+        y += 5;
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(11);
+        centerText(pdf, "CÓDIGO DE RECARGA", margemEsquerda, larguraBox, y);
+        y += 7;
+        
+        pdf.setFont("courier", "bold"); 
+        pdf.setFontSize(16); 
+        
+        // Caixa de destaque para o código
+        pdf.setLineWidth(0.5);
+        pdf.setDrawColor(50);
+        pdf.rect(margemEsquerda + 5, y - 6, larguraBox - 10, 11);
+        
+        centerText(pdf, codigoFormatado, margemEsquerda, larguraBox, y + 1);
+        y += 12;
+    }
+
+    // --- DETALHES (Tabela) ---
+    y += 5;
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(10);
+
+    // Função auxiliar para criar linhas da tabela
+    const adicionarLinha = (rotulo, valor, isBold = false) => {
+        if (valor) {
+            pdf.setFont("helvetica", "normal");
+            pdf.text(rotulo, margemEsquerda + 5, y);
+            
+            if (isBold) pdf.setFont("helvetica", "bold");
+            else pdf.setFont("helvetica", "normal");
+            
+            // Alinha valor à direita
+            const larguraValor = pdf.getTextWidth(valor);
+            pdf.text(valor, (margemEsquerda + larguraBox) - 5 - larguraValor, y);
+            y += 6;
+        }
+    };
+
+    // Dados principais
+    const dataHora = new Date().toLocaleString('pt-PT');
+    adicionarLinha("Data de Emissão:", dataHora);
+    
+    // Linha separadora
+    pdf.setLineWidth(0.2);
+    pdf.line(margemEsquerda + 5, y, margemEsquerda + larguraBox - 5, y);
+    y += 5;
+
+    adicionarLinha("Contador:", dados.contador, true);
+    adicionarLinha("Recibo/Ref:", dados.recibo);
+    
+    // Espaço antes das taxas
+    y += 2;
+    
+    // Valores monetários e energia
+    adicionarLinha("Energia (Kwh):", dados.kwh);
+    adicionarLinha("Taxa de Rádio:", dados.taxaRadio);
+    adicionarLinha("Taxa de Lixo:", dados.taxaLixo);
+    
+    // Linha grossa antes do total
+    y += 2;
+    pdf.setLineWidth(0.4);
+    pdf.line(margemEsquerda + 5, y, margemEsquerda + larguraBox - 5, y);
+    y += 6;
+
+    // Total Pago (Destaque)
+    if (dados.totalPago) {
+        pdf.setFontSize(11);
+        pdf.setFont("helvetica", "bold");
+        pdf.text("TOTAL PAGO:", margemEsquerda + 5, y);
+        
+        const valorTotal = dados.totalPago;
+        const wTotal = pdf.getTextWidth(valorTotal);
+        pdf.text(valorTotal, (margemEsquerda + larguraBox) - 5 - wTotal, y);
+        y += 8;
+    }
+
+    // Se não achou dados estruturados, imprime o texto cru
+    if (!dados.codigo && !dados.contador && !dados.totalPago) {
+        pdf.setFontSize(9);
+        const linhas = pdf.splitTextToSize(textoLimpo, larguraBox - 10);
+        pdf.text(linhas, margemEsquerda + 5, y);
+        y += (linhas.length * 5);
+    }
+
+    // --- RODAPÉ ---
+    y += 5;
+    pdf.setFontSize(8);
+    pdf.setFont("helvetica", "italic");
+    centerText(pdf, "Conserve energia.", margemEsquerda, larguraBox, y);
+    
+    // Borda Externa Final
+    const alturaTotal = (y + 5) - 20; 
+    pdf.setLineWidth(0.6);
+    pdf.setDrawColor(0);
+    pdf.rect(margemEsquerda, 20, larguraBox, alturaTotal);
+
+    pdf.save(`EDM_Recibo_${new Date().getTime()}.pdf`);
+}
+
+function centerText(doc, text, x, width, y) {
+    const textWidth = doc.getTextWidth(text);
+    const xPos = x + (width - textWidth) / 2;
+    doc.text(text, xPos, y);
+}
+
+function extrairDados(texto) {
+    let dados = {
+        codigo: null,
+        contador: null,
+        totalPago: null, // Era 'valor'
+        kwh: null,
+        recibo: null,
+        taxaLixo: null,
+        taxaRadio: null
+    };
+
+    // Regex aprimorado
+    
+    // Código (Substitui Token)
+    const codigoMatch = texto.match(/(?:Token|Codigo\s*1?|Recarga)[:\s]*([\d\s]{10,})/i);
+    if (codigoMatch) dados.codigo = codigoMatch[1].trim();
+
+    // Contador
+    const contadorMatch = texto.match(/(?:Contador|Meter)[:\s]*([\d]+)/i);
+    if (contadorMatch) dados.contador = contadorMatch[1];
+
+    // Total Pago (Geralmente vem como 'Compra' ou 'Valor')
+    const totalMatch = texto.match(/(?:Valor|Compra|Total)[:\s]*([0-9.,]+(?:\s*MT)?)/i);
+    if (totalMatch) dados.totalPago = totalMatch[1];
+
+    // Kwh
+    const kwhMatch = texto.match(/(?:Kwh|Unidades)[:\s]*([0-9.,]+)/i);
+    if (kwhMatch) dados.kwh = kwhMatch[1];
+
+    // Taxa de Lixo
+    const lixoMatch = texto.match(/(?:Taxa\s*(?:de\s*)?)?Lixo[:\s]*([0-9.,]+(?:\s*MT)?)/i);
+    if (lixoMatch) dados.taxaLixo = lixoMatch[1];
+
+    // Taxa de Rádio
+    const radioMatch = texto.match(/(?:Taxa\s*(?:de\s*)?)?Radio[:\s]*([0-9.,]+(?:\s*MT)?)/i);
+    if (radioMatch) dados.taxaRadio = radioMatch[1];
+
+    // Nº Recibo
+    const reciboMatch = texto.match(/(?:Recibo|Ref)[:\s]*([A-Z0-9]+)/i);
+    if (reciboMatch) dados.recibo = reciboMatch[1];
+
+    return dados;
+}
+</script>
+
+</body>
+</html>
